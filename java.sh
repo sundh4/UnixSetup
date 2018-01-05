@@ -1,0 +1,9 @@
+export JRE_HOME=/usr/lib/jvm/java-7-openjdk-amd64/jre
+export PATH=$PATH:$JRE_HOME/bin
+export JAVA_HOME=/usr/lib/jvm/java-7-openjdk-amd64/
+export PATH=$PATH:$JAVA_HOME
+export R_HOME=/usr/lib/R
+export R_SHARE_DIR=/usr/lib/R/share
+export R_DOC_HOME=/usr/local/lib64/R/doc
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/lib:/usr/local/lib64:/usr/lib:/usr/lib64:/lib
+export CATALINA_HOME=/usr/share/tomcat7
