@@ -22,7 +22,7 @@ from subprocess import PIPE, Popen
 SCRIPT_PATH = os.path.dirname(os.path.realpath(__file__))
 
 # Arguments checker for public or private networks
-if len(sys.argv) == 1:
+if len(sys.argv) != 2:
     print "USAGE: \n------\npython %s <--public> or <--private>" % str(sys.argv[0])
     sys.exit(2)
 else:
@@ -31,7 +31,7 @@ else:
         ZABBIX_SERVER = '10.153.64.48'
         WHICH_NETWORK = 'Public'
     elif ARG_OPTION == '--private':
-        ZABBIX_SERVER = '10.153.64.4'
+        ZABBIX_SERVER = '10.153.64.65'
         WHICH_NETWORK = 'Private'
         # For sourcing list of Rprofile
         SOURCING2 = '.source4Efunction.r'
@@ -134,10 +134,6 @@ def library():
 # Function to install OpenJDK JAVA 7
 def java():
     print "Installing OpenJDK JAVA 7 !\n"
-    # os.system('clear')
-    # Remove all java packages
-    #os.system('apt-get purge -y openjdk-\* icedtea-\* icedtea6-\* --remove')
-    #os.system('apt-get autoremove')
     print("Checking update.....")
     os.system('apt-get update > /dev/null 2>&1 && echo "Finish Checking Update"')
     print("Starting to install OpenJDK Java 7.....")
@@ -248,11 +244,18 @@ def zabbix():
     return
 
 
+# Functions to update libmaodbc using the latest version support for ssl
+def updateLibMaODBC():
+    copy('/mnt/public/IT/unixAdmin/libmaodbc.so', '/usr/local/lib/libmaodbc.so')
+    copy('/etc/odbcinst.ini', '/etc/odbcinst.ini.backup')
+    copy('/mnt/public/IT/DSN/unix/odbcinst.ini', '/etc/')
+    os.system('ln -sv /usr/lib/x86_64-linux-gnu/libodbcinst.so.1.0.0 /usr/lib/x86_64-linux-gnu/libodbcinst.so.2')
+    return
+
+
 # Function to install R base
 def rSetup():
     print "Installing R in Progress....."
-    # Cleaning old R if exist
-    os.system('apt-get purge -y r-base-core r-base-dev --remove')
     os.system('sudo apt-add-repository "deb http://cran.rstudio.com/bin/linux/ubuntu $(lsb_release -cs)/"')
     os.system('gpg --keyserver keyserver.ubuntu.com --recv-key E084DAB9')
     os.system('gpg -a --export E084DAB9 | sudo apt-key add -')
@@ -263,14 +266,17 @@ def rSetup():
     copy('/mnt/public/IT/DSN/unix/odbc.ini', '/etc/')
     copy('/mnt/public/IT/DSN/unix/odbcinst.ini', '/etc/')
     os.system('cp /mnt/public/IT/Libs/R/Rprofile.site /usr/lib/R/etc/Rprofile.site')
+    # Configure R depend on Public networks or 4E networks
     if WHICH_NETWORK == 'Public':
         # For sourcing list of Rprofile
         SOURCING1 = '.source4Efunction.r'
         SOURCING2 = '.sourceAlfunction.r'
         os.system("sed -i 's/" + str(SOURCING1) + "/" + str(SOURCING2) + "/g' /etc/R/Rprofile.site")
     else:
+        # Call functions update lib my odbc
+        updateLibMaODBC()
         print(" ")
-    print("R has been Setup")
+    print("R has been Setup!")
     os.system('sleep 5')
     return
 
@@ -301,6 +307,24 @@ def rstudio_server():
     return
 
 
+# Function to install Emacs & ESS
+def emac_ess():
+    print("Installing ESS......")
+    os.system('apt-get update > /dev/null 2>&1 && echo "Finish Checking Update"')
+    os.system('apt-get install -y ess emacs emacs24')
+    os.system('sleep 5')
+    return
+
+
+# Function to install Gluster Client
+def gluster_client():
+    print("Installing Gluster Client......")
+    os.system('add-apt-repository -y ppa:gluster/glusterfs-3.8')
+    os.system('apt-get update > /dev/null 2>&1 && echo "Finish Checking Update"')
+    os.system('apt-get install -y glusterfs-client')
+    return
+
+
 # Function to Mount all Drive available for Public or Private Networks
 def mounting():
     print "Mouting Drive, please wait....."
@@ -315,6 +339,7 @@ def mounting():
         ecshare = '4ecapsvsg15.fourelements.sg:/shared          /4ECAP          nfs'
         backup = '//10.153.64.20/Volume_1   /mnt/backup_drive/            cifs    rw,guest,uid=0,gid=0,file_mode=0777,dir_mode=0777,nounix,sec=ntlm  0 0'
         gluster = '4ecappcsg53:/glusterAL	/mnt/gluster/	glusterfs	acl,defaults,transport=tcp,_netdev,log-level=WARNING 0 0'
+        home_gluster = '/mnt/gluster/Home      /home    none    bind  0  0'
 
         # Modify fstab based on networks
         if WHICH_NETWORK == 'Private':
@@ -332,11 +357,24 @@ def mounting():
             subprocess.call(['echo "' + str(backup) + '">>/etc/fstab'], shell=True)
             os.system('mount -a > /dev/null 2>&1')
         else:
-            os.system('add-apt-repository -y ppa:gluster/glusterfs-3.8')
-            os.system('apt-get update > /dev/null 2>&1 && echo "Finish Checking Update"')
-            os.system('apt-get install -y glusterfs-client')
+            proc = subprocess.Popen(["dpkg -l |grep 'glusterfs-client' |awk '{print $1}'"], stdout=subprocess.PIPE, shell=True)
+            (installed, err) = proc.communicate()
+            installed = installed.strip()
+            if installed != 'ii':
+                gluster_client()
+            else:
+                print("Gluster Client already installed!!")
+            print("Setting up Gluster, please wait......")
             os.system('mkdir -p /mnt/gluster')
-            subprocess.call(['echo "' + str(gluster) + '">>/etc/fstab'], shell=True)
+
+            # This is checker on fstab. So there will be no multiple line on fstab
+            fstb_gluster = subprocess.Popen(["grep 'glusterAL' -o /etc/fstab |awk 'NR==1'"],
+                                            stdout=subprocess.PIPE, shell=True)
+            (_gluster_there, err) = fstb_gluster.communicate()
+            _gluster_there = _gluster_there.strip()
+            if _gluster_there != 'glusterAL':
+                subprocess.call(['echo "' + str(gluster) + '">>/etc/fstab'], shell=True)
+
             # Check if GlusterFS already mounted or not
             proc = subprocess.Popen(["df -h |grep /mnt/gluster |awk '{print $6}'"], stdout=subprocess.PIPE, shell=True)
             (mounted, err) = proc.communicate()
@@ -352,9 +390,25 @@ def mounting():
             DRIVE_LINK = os.path.islink('/Drive')
             PUBLIC_LINK = os.path.islink('/mnt/public')
             if str(DRIVE_LINK) == 'False':
+                print("/Drive not exists, creating symlink....")
                 os.system('ln -sv /mnt/gluster/Alphien/ /Drive')
             if str(PUBLIC_LINK) == 'False':
-                os.system('ln -sv /mnt/gluster/Public/ /mnt/public')
+                print("Public Drive not exists, creating symlink....")
+                proc = subprocess.Popen(["df -h |grep /mnt/public |awk '{print $6}'"], stdout=subprocess.PIPE,
+                                        shell=True)
+                (mounted, err) = proc.communicate()
+                mounted = mounted.strip()
+                if mounted != '/mnt/public':
+                    os.system('rm -rf /mnt/public')
+                    os.system('ln -sv /mnt/gluster/Public/ /mnt/public')
+            # This is checker on fstab. So there will be no multiple line on fstab
+            checkhome = subprocess.Popen(["grep -e '^/mnt/gluster/Home' -o /etc/fstab |awk 'NR==1'"],
+                                         stdout=subprocess.PIPE, shell=True)
+            (_home_there, err) = checkhome.communicate()
+            _home_there = _home_there.strip()
+            if _home_there != '/mnt/gluster/Home':
+                subprocess.call(['echo "' + str(home_gluster) + '">>/etc/fstab'], shell=True)
+            os.system('mount /home > /dev/null 2>&1')
         return
 
     # Check and Editing FQDN
@@ -388,7 +442,8 @@ def join_domain():
     # Install packages and libraries needed
     os.system('apt-get install -y sssd libsss-sudo krb5-user nfs-common autofs cifs-utils')
     # Configure SSSD service
-    os.system('mv /etc/sssd/sssd.conf /etc/sssd/sssd.conf.ori')
+    if os.path.exists('/etc/sssd/sssd.conf'):
+        os.system('mv /etc/sssd/sssd.conf /etc/sssd/sssd.conf.ori')
     copy(SCRIPT_PATH + '/sssd.conf', '/etc/sssd/sssd.conf')
     os.system('chmod 600 /etc/sssd/sssd.conf')
     os.system('initctl start sssd && service sssd restart')
@@ -432,14 +487,17 @@ def join_domain():
     comstr = 'yes'
     nfscom = 'sed -re' + ' "s/(NEED_GSSD=)[^=]*$/\\1' + str(comstr) + '/"' + ' /etc/default/nfs-common -i'
     subprocess.call(nfscom, shell=True)
-    automaster = 'sed -i' + ' "s/^+auto.master/#+auto.master/g" /etc/auto.master'
-    subprocess.call(automaster, shell=True)
-    os.system('touch /etc/auto.home && chmod 644 /etc/auto.home')
-    os.system('echo "/home   /etc/auto.home" >> /etc/auto.master')
-    os.system('echo "*   -fstype=nfs4,rw,hard,intr,sec=krb5   4ecapsvsg15.fourelements.sg:/home/&" > /etc/auto.home')
-    os.system('echo "*   -fstype=nfs4,rw,hard,intr,sec=krb5   4ecapsvsg15.fourelements.sg:/shared/&" >> /etc/auto.home')
-    os.system('mkdir -p /4ECAP')
-    os.system('service autofs restart')
+
+    # Setting autofs for private Networks
+    if WHICH_NETWORK == 'Private':
+        automaster = 'sed -i' + ' "s/^+auto.master/#+auto.master/g" /etc/auto.master'
+        subprocess.call(automaster, shell=True)
+        os.system('touch /etc/auto.home && chmod 644 /etc/auto.home')
+        os.system('echo "/home   /etc/auto.home" >> /etc/auto.master')
+        os.system('echo "*   -fstype=nfs4,rw,hard,intr,sec=krb5   4ecapsvsg15.fourelements.sg:/home/&" > /etc/auto.home')
+        os.system('echo "*   -fstype=nfs4,rw,hard,intr,sec=krb5   4ecapsvsg15.fourelements.sg:/shared/&" >> /etc/auto.home')
+        os.system('mkdir -p /4ECAP')
+        os.system('service autofs restart')
     os.system('cp /etc/nsswitch.conf /etc/nsswitch.conf.ORIG')
     copy(SCRIPT_PATH + '/nsswitch.conf', '/etc/nsswitch.conf')
     os.system('chmod 644 /etc/nsswitch.conf')
@@ -492,23 +550,29 @@ def new_install():
     # Check and Editing FQDN
     cond_host = os.path.exists('/etc/hosts.ori')
     if str(cond_host) == 'True':
-        # print ("file asli ada")
+        # Backup of original file exist then use back the original file
         os.system('cp /etc/hosts.ori /etc/hosts')
         fqdn_func()
     else:
-        # print ("file masih ori")
+        # Backup of original file not exist then create a backup
         os.system('cp /etc/hosts /etc/hosts.ori')
         fqdn_func()
-
+    # Network interface configuration based on which network
+    if WHICH_NETWORK == 'Public':
+        print("Comment DNSMasq.....")
+        os.system("sed -r 's/^dns=/#dns=/g' -i /etc/NetworkManager/NetworkManager.conf")
     mounting()
     java()
     tomcat()
     rSetup()
+    # Set java & R profile
+    set_profile()
     os.system('cp -rv /mnt/public/IT/puttyKey/.ssh/ /root/')
     os.system('chmod -R 600 /root/.ssh/')
     os.system('chown root:root /root/.ssh/')
     zabbix()
     gitSetup()
+    ntp_setup()
     maven_install()
     pip_install()
     os.system('clear')
@@ -519,13 +583,15 @@ def new_install():
 # Function To install Google Chrome browser
 def gchrome():
     print ("**Google Chrome Installation**")
-    os.system('wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb -P /tmp/')
+    # Adding key
+    os.system('wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | sudo apt-key add -')
+    # Adding repository
+    chrome_repo = 'deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main'
+    subprocess.call(['echo "' + str(chrome_repo) + '" | sudo tee /etc/apt/sources.list.d/google-chrome.list'], shell=True)
     print ("Checking for update.....")
     os.system('apt-get update >/dev/null 2>&1')
     print ("Installing Chrome.....")
-    os.system('dpkg -i /tmp/google-chrome-stable_current_amd64.deb >/dev/null 2>&1')
-    os.system('apt-get install -f -y')
-    os.system('apt-get install -y libnss3')
+    os.system('apt-get install -y google-chrome-stable')
     print ("Google Chrome Installed")
     os.system('sleep 5')
     return
@@ -556,16 +622,48 @@ def joind():
         # print ("file masih ori")
         os.system('cp /etc/hosts /etc/hosts.ori')
         fqdn_func()
+    # Check if GlusterFS already mounted or not
+    proc = subprocess.Popen(["df -h |grep /mnt/public |awk '{print $6}'"], stdout=subprocess.PIPE, shell=True)
+    (mounted, err) = proc.communicate()
+    # Strip New line on the version
+    mounted = mounted.strip()
+    if mounted != '/mnt/public':
+        print("Mounting public drive now....")
+        # Symlink checker exist or not
+        # If not exist, create symlink.
+        public_link = os.path.islink('/mnt/public')
+        if str(public_link) == 'True':
+            os.system('unlink /mnt/public')
+        os.system('mount /mnt/public > /dev/null 2>&1')
+    else:
+        print("Public drive mounted!")
+    updateLibMaODBC()
     join_domain()
     return
 
 
 # Function to install MariaDB Server
 def mariadbs():
-    print "Installing MariaDB Server......"
-    os.system('apt-get update >/dev/null 2>&1')
-    os.system('apt-get install mariadb-server')
-    print "MariaDB Server Installed"
+    input_version = raw_input("Input MariaDb version { 5.5 | 10.2 } = ")
+    if input_version == '5.5':
+        print "Installing MariaDB Server %s......" %input_version
+        os.system("apt-key adv --recv-keys --keyserver hkp://keyserver.ubuntu.com:80 0xcbcb082a1bb943db")
+        os.system("add-apt-repository 'deb [arch=amd64,i386,ppc64el] http://download.nus.edu.sg/mirror/mariadb/repo/5.5/ubuntu trusty main'")
+        os.system('apt-get update >/dev/null 2>&1')
+        os.system('apt-get install mariadb-server-5.5')
+    elif input_version == '10.2':
+        print "Installing MariaDB Server %s......" % input_version
+        os.system("apt-key adv --recv-keys --keyserver hkp://keyserver.ubuntu.com:80 0xcbcb082a1bb943db")
+        os.system("add-apt-repository 'deb [arch=amd64,i386,ppc64el] http://download.nus.edu.sg/mirror/mariadb/repo/10.2/ubuntu trusty main'")
+        os.system('apt-get update >/dev/null 2>&1')
+        os.system('apt-get install mariadb-server-10.2')
+    else:
+        print "Please input the correct version { 5.5 | 10.2 }"
+        return mariadbs()
+    proc = subprocess.Popen(["mysql --version |awk '{print $5}' |cut -d '-' -f 1"], stdout=subprocess.PIPE, shell=True)
+    (vers, err) = proc.communicate()
+    vers = vers.strip()
+    print "MariaDB Server V%s Installed" %vers
     os.system('sleep 5')
     phpmyadmins()
     return
@@ -673,21 +771,28 @@ def jupyter_notebook():
     return
 
 
-# Function to install Maven 3.3.9 (Refer to wiki page)
+# Function to install Maven 3.5.2 (Refer to wiki page)
 def maven_install():
     print("Installing Maven....")
-    #os.system('sudo apt-get update > /dev/null 2>&1 && echo "Finish Checking Update"')
-    #os.system('sudo apt-get install -y maven')
-    url = 'https://repo.maven.apache.org/maven2/org/apache/maven/apache-maven/3.3.9/apache-maven-3.3.9-bin.tar.gz'
+    url = 'http://www-eu.apache.org/dist/maven/maven-3/3.5.2/binaries/apache-maven-3.5.2-bin.tar.gz'
     os.system('wget ' + url + ' -P /tmp/')
-    os.system('tar -xzvf /tmp/apache-maven-3.3.9-bin.tar.gz -C /usr/local/')
-    os.system('rm -rf /tmp/apache-maven-3.3.9-bin.tar.gz')
+    os.system('tar -xzvf /tmp/apache-maven-3.5.2-bin.tar.gz -C /usr/local/')
+    os.system('rm -rf /tmp/apache-maven-3.5.2-bin.tar.gz')
+    # Symlink maven
+    MVN_LINK = os.path.islink('/usr/local/apache-maven')
+    if str(MVN_LINK) == 'False':
+        print("Creating Maven symlink.....")
+        os.system('ln -sv /usr/local/apache-maven-3.5.2/ /usr/local/apache-maven')
+    else:
+        print("Re-creating Maven symlink.....")
+        os.system('unlink /usr/local/apache-maven')
+        os.system('ln -sv /usr/local/apache-maven-3.5.2/ /usr/local/apache-maven')
     # Set environments path for Maven
-    maven_path = 'export PATH=/usr/local/apache-maven-3.3.9/bin${PATH:+:${PATH}}'
-    m2_home = 'export M2_HOME=/usr/local/apache-maven-3.3.9'
+    maven_path = 'export PATH=/usr/local/apache-maven/bin${PATH:+:${PATH}}'
+    m2_home = 'export M2_HOME=/usr/local/apache-maven'
     os.system("echo '" + maven_path + "' >>/etc/profile.d/java.sh")
     os.system("echo '" + m2_home + "' >>/etc/profile.d/java.sh")
-    print("Maven 3.3.9 installed! Please reboot the machine")
+    print("Maven 3.5.2 installed! Please reboot the machine")
     os.system('sleep 5')
     return
 
@@ -743,12 +848,19 @@ def cuda_install():
     return
 
 
-# Function to install Python Pip
+# Function to install Python Pip and mandatory python packages
 def pip_install():
     print("Installing latest python pip........")
     os.system('apt-get update > /dev/null 2>&1')
-    os.system('sudo apt-get install -y python-pip python-dev')
-    os.system("python -m pip install -U pip")
+    os.system('sudo apt-get install -y python-pip python-dev python3-pip python3-dev')
+    os.system("python2.7 -m pip install -U pip")
+    os.system("python2.7 -m pip install pandas")
+    os.system("python2.7 -m pip install numpy")
+    os.system("python2.7 -m pip install sklearn")
+    os.system("python2.7 -m pip install scipy")
+    os.system("python2.7 -m pip install matplotlib")
+    os.system("python2.7 -m pip install 'rpy2==2.8.5'")
+    os.system("python3 -m pip install -U pip")
     return
 
 
@@ -790,6 +902,22 @@ def eclipse_setup():
     return
 
 
+# Function to setup ntp
+def ntp_setup():
+    print("Installing ntp....")
+    os.system('apt-get install -y ntp')
+    copy(SCRIPT_PATH + '/ntp.conf', '/etc/')
+    os.system('service ntp restart')
+    # Setup /etc/rc.local so NTP will be run even reboot the machine
+    rclocal = 'sed -i' + ' "s/^exit 0/#exit 0/g" /etc/rc.local'
+    subprocess.call(rclocal, shell=True)
+    os.system('echo "ntpdate -u 10.153.64.15" >>/etc/rc.local')
+    os.system('echo "exit 0" >>/etc/rc.local')
+    print("NTP installed!")
+    os.system('sleep 5')
+    return
+
+
 # Main menu
 def main_menu():
     os.system('clear')
@@ -823,6 +951,7 @@ def mandatory():
     print "6. Maven"
     print "7. Mount Drive"
     print "8. Python pip"
+    print "9. NTP"
     print "\n0. Back to main Menu"
     print "q. Quit"
     choice1 = raw_input(" >>  ")
@@ -849,6 +978,7 @@ def opt_install():
     print ("13. NVIDIA Driver")
     print ("14. Tensorflow-GPU")
     print ("15. Eclipse Mars")
+    print ("16. Emacs ESS")
     print ("\n0. Back to Main Menu")
     print ("q. Quit Program")
     choice2 = raw_input(" >>  ")
@@ -893,6 +1023,7 @@ menu_mandatory = {
     '6': maven_install,
     '7': mounting,
     '8': pip_install,
+    '9': ntp_setup,
     '0': back,
     'q': exit,
 }
@@ -916,6 +1047,7 @@ menu_opt = {
     '13': nvidia_install,
     '14': tensor_install,
     '15': eclipse_setup,
+    '16': emac_ess,
     '0': back,
     'q': exit,
 }
